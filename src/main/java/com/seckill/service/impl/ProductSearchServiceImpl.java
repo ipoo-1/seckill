@@ -3,10 +3,10 @@ package com.seckill.service.impl;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
+import com.seckill.common.BusinessException;
 import com.seckill.entity.Product;
 import com.seckill.mapper.ProductMapper;
 import com.seckill.service.ProductSearchService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -15,11 +15,13 @@ import java.util.List;
 @Service
 public class ProductSearchServiceImpl implements ProductSearchService {
 
-    @Autowired
-    private ProductMapper productMapper;
+    private final ProductMapper productMapper;
+    private final ElasticsearchClient esClient;
 
-    @Autowired
-    private ElasticsearchClient esClient;
+    public ProductSearchServiceImpl(ProductMapper productMapper, ElasticsearchClient esClient) {
+        this.productMapper = productMapper;
+        this.esClient = esClient;
+    }
 
     @Override
     public void syncAll() {
@@ -39,7 +41,7 @@ public class ProductSearchServiceImpl implements ProductSearchService {
                         ));
             }
         } catch (Exception e) {
-            throw new RuntimeException("创建索引失败", e);
+            throw new BusinessException(500, "创建索引失败");
         }
 
         // 2. 从 MySQL 读出所有商品，一条条写入 ES
@@ -51,7 +53,7 @@ public class ProductSearchServiceImpl implements ProductSearchService {
                         .id(String.valueOf(product.getId()))
                         .document(product));
             } catch (Exception e) {
-                throw new RuntimeException("同步商品失败: " + product.getId(), e);
+                throw new BusinessException(500, "同步商品失败: " + product.getId());
             }
         }
     }
@@ -72,7 +74,7 @@ public class ProductSearchServiceImpl implements ProductSearchService {
             }
             return result;
         } catch (Exception e) {
-            throw new RuntimeException("搜索失败", e);
+            throw new BusinessException(500, "搜索服务暂时不可用");
         }
     }
 }

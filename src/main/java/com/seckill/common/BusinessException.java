@@ -2,7 +2,7 @@ package com.seckill.common;
 
 public class BusinessException extends RuntimeException {
 
-    private Integer code;
+    private final Integer code;
 
     public BusinessException(String message) {
         this(400, message);
