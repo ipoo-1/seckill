@@ -1,6 +1,7 @@
 package com.seckill.config;
 
 import org.apache.rocketmq.client.producer.DefaultMQProducer;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -8,9 +9,11 @@ import org.springframework.context.annotation.Configuration;
 public class RocketMqConfig {
 
     @Bean(destroyMethod = "shutdown")
-    public DefaultMQProducer defaultMQProducer() throws Exception {
-        DefaultMQProducer producer = new DefaultMQProducer("seckill-producer-group");
-        producer.setNamesrvAddr("localhost:9876");
+    public DefaultMQProducer defaultMQProducer(
+            @Value("${rocketmq.name-server:127.0.0.1:9876}") String nameServer,
+            @Value("${rocketmq.producer-group:seckill-producer-group}") String producerGroup) throws Exception {
+        DefaultMQProducer producer = new DefaultMQProducer(producerGroup);
+        producer.setNamesrvAddr(nameServer);
         producer.start();
         return producer;
     }

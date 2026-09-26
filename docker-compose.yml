@@ -1,0 +1,58 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: change-me
+      MYSQL_DATABASE: seckill
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pchange-me"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.3.1
+    command: sh mqnamesrv
+    ports:
+      - "9876:9876"
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.1
+    depends_on:
+      - rocketmq-namesrv
+    command: sh mqbroker -n rocketmq-namesrv:9876 -c /home/rocketmq/broker.conf
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+    volumes:
+      - ./rocketmq/broker.conf:/home/rocketmq/broker.conf:ro
+
+  elasticsearch:
+    profiles: ["search"]
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+
+volumes:
+  mysql-data:
+  es-data:

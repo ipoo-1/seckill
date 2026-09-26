@@ -6,25 +6,36 @@ import com.seckill.common.BusinessException;
 import com.seckill.entity.Product;
 import com.seckill.mapper.ProductMapper;
 import com.seckill.service.ProductService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Random;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class ProductServiceImpl implements ProductService {
 
-    @Autowired
-    private ProductMapper productMapper;
+    private static final String RELEASE_LOCK_SCRIPT =
+            "if redis.call('get', KEYS[1]) == ARGV[1] then " +
+                    "return redis.call('del', KEYS[1]) " +
+                    "else return 0 end";
 
-    @Autowired
-    private StringRedisTemplate stringRedisTemplate;
+    private final ProductMapper productMapper;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final ObjectMapper objectMapper;
+    private final DefaultRedisScript<Long> releaseLockScript =
+            new DefaultRedisScript<>(RELEASE_LOCK_SCRIPT, Long.class);
 
-    @Autowired
-    private ObjectMapper objectMapper;
+    public ProductServiceImpl(ProductMapper productMapper,
+                              StringRedisTemplate stringRedisTemplate,
+                              ObjectMapper objectMapper) {
+        this.productMapper = productMapper;
+        this.stringRedisTemplate = stringRedisTemplate;
+        this.objectMapper = objectMapper;
+    }
 
     @Override
     public List<Product> listProducts() {
@@ -45,8 +56,9 @@ public class ProductServiceImpl implements ProductService {
 
             // 2. 抢"互斥锁"：只有抢到的线程才去查数据库（防击穿）
             String lockKey = "lock:product:" + id;
+            String lockOwner = UUID.randomUUID().toString();
             Boolean locked = stringRedisTemplate.opsForValue()
-                    .setIfAbsent(lockKey, "1", Duration.ofSeconds(5));
+                    .setIfAbsent(lockKey, lockOwner, Duration.ofSeconds(5));
             if (Boolean.TRUE.equals(locked)) {
                 try {
                     // 3. 抢到锁后双检一次缓存（防止重复查库）
@@ -58,7 +70,10 @@ public class ProductServiceImpl implements ProductService {
                     return loadAndCache(cacheKey, id);
                 } finally {
                     // 5. 释放锁
-                    stringRedisTemplate.delete(lockKey);
+                    stringRedisTemplate.execute(
+                            releaseLockScript,
+                            List.of(lockKey),
+                            lockOwner);
                 }
             }
 
@@ -86,7 +101,8 @@ public class ProductServiceImpl implements ProductService {
         try {
             return objectMapper.readValue(json, Product.class);
         } catch (JsonProcessingException e) {
-            return null; // 缓存数据异常，当作没缓存
+            stringRedisTemplate.delete(cacheKey);
+            return null; // 缓存数据异常，删除后回源
         }
     }
 
@@ -99,7 +115,7 @@ public class ProductServiceImpl implements ProductService {
             throw new BusinessException("商品不存在");
         }
         // 防雪崩：过期时间 5 分钟 + 随机 0~2 分钟，避免商品集体同时过期
-        long ttl = 300 + new Random().nextInt(120);
+        long ttl = 300 + ThreadLocalRandom.current().nextInt(120);
         try {
             stringRedisTemplate.opsForValue().set(
                     cacheKey, objectMapper.writeValueAsString(product), Duration.ofSeconds(ttl));
